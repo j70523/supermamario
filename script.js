@@ -13,133 +13,216 @@ const keys = {
 
 // 遊戲狀態：'playing', 'gameover', 'win'
 let gameState = 'playing'; 
+let scrollOffset = 0; // 全域的畫面偏移量
+
+// 簡單的 AABB 碰撞檢測函數
+function rectIntersect(r1, r2) {
+    return !(r2.x >= r1.x + r1.width || 
+             r2.x + r2.width <= r1.x || 
+             r2.y >= r1.y + r1.height || 
+             r2.y + r2.height <= r1.y);
+}
 
 class Player {
     constructor() {
-        this.position = { x: 50, y: 100 };
-        this.velocity = { x: 0, y: 0 };
+        this.x = 50;
+        this.y = 100;
         this.width = 30;
-        this.height = 40; // 稍微調高，讓人物看起來比例比較自然
-        this.speed = 6;
+        this.height = 40; 
+        this.speed = 4; // 稍微調慢，讓控制更精準
         this.gravity = 0.6;
         this.jumpStrength = 13;
+        this.velocity = { x: 0, y: 0 };
         this.isGrounded = false;
+        this.invincibilityTimer = 0;
     }
 
     draw() {
+        let drawX = this.x - scrollOffset;
+        
+        ctx.save();
+        // 無敵狀態閃爍效果
+        if (this.invincibilityTimer > 0) {
+            if (Math.floor(Date.now() / 50) % 2 === 0) {
+                ctx.globalAlpha = 0.5; // 半透明閃爍
+            }
+        }
+
         // 如果圖片載入完成了，就畫出圖片
         if (playerImage.complete && playerImage.naturalWidth !== 0) {
-            ctx.drawImage(playerImage, this.position.x, this.position.y, this.width, this.height);
+            ctx.drawImage(playerImage, drawX, this.y, this.width, this.height);
         } else {
             // 尚未載入完成時，先畫紅色方塊作為預設
             ctx.fillStyle = '#ff0000';
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+            ctx.fillRect(drawX, this.y, this.width, this.height);
         }
-    }
-
-    update() {
-        this.draw();
-        this.position.y += this.velocity.y;
-        this.position.x += this.velocity.x;
-
-        // 如果在畫布內，加上重力
-        if (this.position.y + this.height + this.velocity.y <= canvas.height) {
-            this.velocity.y += this.gravity;
-            this.isGrounded = false;
-        }
+        ctx.restore();
     }
 }
 
 class Platform {
     constructor({ x, y, width, height, type = 'ground' }) {
-        this.position = { x, y };
+        this.x = x;
+        this.y = y;
         this.width = width;
         this.height = height;
         this.type = type; // 'ground', 'block', 'qblock', 'pipe'
+        this.isHit = false; // 問號磚是否被敲過
     }
 
     draw() {
+        let drawX = this.x - scrollOffset;
+
         if (this.type === 'pipe') {
-            // 水管身體
-            ctx.fillStyle = '#105010'; // 邊框綠
-            ctx.fillRect(this.position.x - 2, this.position.y, this.width + 4, this.height);
-            ctx.fillStyle = '#00A800'; // 內部綠
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
-            
-            // 水管開口
+            ctx.fillStyle = '#105010'; 
+            ctx.fillRect(drawX - 2, this.y, this.width + 4, this.height);
+            ctx.fillStyle = '#00A800'; 
+            ctx.fillRect(drawX, this.y, this.width, this.height);
             ctx.fillStyle = '#105010';
-            ctx.fillRect(this.position.x - 8, this.position.y, this.width + 16, 20);
+            ctx.fillRect(drawX - 8, this.y, this.width + 16, 20);
             ctx.fillStyle = '#00A800';
-            ctx.fillRect(this.position.x - 6, this.position.y + 2, this.width + 12, 16);
+            ctx.fillRect(drawX - 6, this.y + 2, this.width + 12, 16);
         } else if (this.type === 'ground') {
-            // 地板紅磚土色
             ctx.fillStyle = '#C84C0C'; 
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
-            ctx.strokeStyle = '#000000';
+            ctx.fillRect(drawX, this.y, this.width, this.height);
+            ctx.strokeStyle = '#000';
             ctx.lineWidth = 2;
-            ctx.strokeRect(this.position.x, this.position.y, this.width, this.height);
-            // 地板紋路裝飾
+            ctx.strokeRect(drawX, this.y, this.width, this.height);
             ctx.beginPath();
-            ctx.moveTo(this.position.x, this.position.y + 10);
-            ctx.lineTo(this.position.x + this.width, this.position.y + 10);
+            ctx.moveTo(drawX, this.y + 10);
+            ctx.lineTo(drawX + this.width, this.y + 10);
             ctx.stroke();
         } else if (this.type === 'block') {
-            // 碎磚塊
             ctx.fillStyle = '#C84C0C';
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+            ctx.fillRect(drawX, this.y, this.width, this.height);
             ctx.strokeStyle = '#000';
-            ctx.strokeRect(this.position.x, this.position.y, this.width, this.height);
-            // 畫個叉代表碎磚
+            ctx.strokeRect(drawX, this.y, this.width, this.height);
             ctx.beginPath();
-            ctx.moveTo(this.position.x, this.position.y + this.height/2);
-            ctx.lineTo(this.position.x + this.width, this.position.y + this.height/2);
-            ctx.moveTo(this.position.x + this.width/2, this.position.y);
-            ctx.lineTo(this.position.x + this.width/2, this.position.y + this.height);
+            ctx.moveTo(drawX, this.y + this.height/2);
+            ctx.lineTo(drawX + this.width, this.y + this.height/2);
+            ctx.moveTo(drawX + this.width/2, this.y);
+            ctx.lineTo(drawX + this.width/2, this.y + this.height);
             ctx.stroke();
         } else if (this.type === 'qblock') {
-            // 問號磚塊
-            ctx.fillStyle = '#F8B800'; 
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
-            ctx.fillStyle = 'black';
-            ctx.font = 'bold 20px 微軟正黑體';
-            ctx.textAlign = 'center';
-            ctx.fillText('?', this.position.x + this.width/2, this.position.y + 26);
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(this.position.x, this.position.y, this.width, this.height);
+            if (this.isHit) {
+                // 被敲過後變成灰色
+                ctx.fillStyle = '#A0A0A0';
+                ctx.fillRect(drawX, this.y, this.width, this.height);
+                ctx.strokeStyle = '#000';
+                ctx.strokeRect(drawX, this.y, this.width, this.height);
+            } else {
+                ctx.fillStyle = '#F8B800'; 
+                ctx.fillRect(drawX, this.y, this.width, this.height);
+                ctx.fillStyle = 'black';
+                ctx.font = 'bold 20px 微軟正黑體';
+                ctx.textAlign = 'center';
+                ctx.fillText('?', drawX + this.width/2, this.y + 26);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(drawX, this.y, this.width, this.height);
+            }
         }
+    }
+}
+
+class Star {
+    constructor({ x, y }) {
+        this.x = x;
+        this.y = y;
+        this.velocity = { x: 3, y: -8 }; // 剛出現時往上並往右彈跳
+        this.width = 25; // 加大觸碰判定
+        this.height = 25;
+        this.isCollected = false;
+        // 定義顯示用的圖形大小，稍微小一點點避免錯覺
+        this.drawWidth = 20;
+        this.drawHeight = 20;
+    }
+
+    draw() {
+        if (this.isCollected) return;
+        let drawX = this.x - scrollOffset;
+
+        ctx.fillStyle = '#FFFF00'; 
+        ctx.beginPath();
+        let cx = drawX + this.drawWidth/2 + (this.width - this.drawWidth)/2;
+        let cy = this.y + this.drawHeight/2 + (this.height - this.drawHeight)/2;
+        let outerRadius = 12;
+        let innerRadius = 5;
+        for (let i = 0; i < 5; i++) {
+            ctx.lineTo(Math.cos((18+i*72)/180*Math.PI)*outerRadius+cx, -Math.sin((18+i*72)/180*Math.PI)*outerRadius+cy);
+            ctx.lineTo(Math.cos((54+i*72)/180*Math.PI)*innerRadius+cx, -Math.sin((54+i*72)/180*Math.PI)*innerRadius+cy);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+
+    update() {
+        if (this.isCollected) return;
+        this.draw();
+
+        // X軸移動與碰撞
+        this.x += this.velocity.x;
+        platforms.forEach(p => {
+            if (rectIntersect(this, p)) {
+                if (this.velocity.x > 0) {
+                    this.x = p.x - this.width;
+                    this.velocity.x *= -1;
+                } else if (this.velocity.x < 0) {
+                    this.x = p.x + p.width;
+                    this.velocity.x *= -1;
+                }
+            }
+        });
+
+        // Y軸移動與碰撞
+        this.velocity.y += 0.5; // 星星重力
+        this.y += this.velocity.y;
+        platforms.forEach(p => {
+            if (rectIntersect(this, p)) {
+                if (this.velocity.y > 0) { // 往下掉碰到地板
+                    this.y = p.y - this.height;
+                    this.velocity.y = -7; // 彈起
+                } else if (this.velocity.y < 0) { // 往上撞到天花板
+                    this.y = p.y + p.height;
+                    this.velocity.y = 0;
+                }
+            }
+        });
     }
 }
 
 class Goomba {
     constructor({ x, y }) {
-        this.position = { x, y };
+        this.x = x;
+        this.y = y;
         this.velocity = { x: -1.5, y: 0 };
         this.width = 30;
         this.height = 30;
         this.isDead = false;
-        this.disappearTimer = 30; // 死亡後過多久消失
+        this.disappearTimer = 30; 
     }
 
     draw() {
         if (this.disappearTimer <= 0) return;
+        let drawX = this.x - scrollOffset;
 
         if (this.isDead) {
-            // 被踩扁
             ctx.fillStyle = '#9C4A00';
-            ctx.fillRect(this.position.x, this.position.y + 20, this.width, this.height - 20);
+            ctx.fillRect(drawX, this.y + 20, this.width, this.height - 20);
         } else {
-            // 正常怪物
             ctx.fillStyle = '#9C4A00';
-            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+            ctx.fillRect(drawX, this.y, this.width, this.height);
             
             // 眼睛
             ctx.fillStyle = 'white';
-            ctx.fillRect(this.position.x + 5, this.position.y + 5, 8, 10);
-            ctx.fillRect(this.position.x + 17, this.position.y + 5, 8, 10);
+            ctx.fillRect(drawX + 5, this.y + 5, 8, 10);
+            ctx.fillRect(drawX + 17, this.y + 5, 8, 10);
             ctx.fillStyle = 'black';
-            ctx.fillRect(this.position.x + 8, this.position.y + 8, 4, 4);
-            ctx.fillRect(this.position.x + 20, this.position.y + 8, 4, 4);
+            ctx.fillRect(drawX + 8, this.y + 8, 4, 4);
+            ctx.fillRect(drawX + 20, this.y + 8, 4, 4);
         }
     }
 
@@ -151,39 +234,36 @@ class Goomba {
         }
 
         this.draw();
-        this.position.x += this.velocity.x;
-        this.position.y += this.velocity.y;
-
-        // 簡單重力
-        if (this.position.y + this.height + this.velocity.y <= canvas.height) {
-            this.velocity.y += 0.6;
-        }
-
-        // 怪物簡單的平台碰撞 (只防止掉落並在邊緣折返)
-        let onPlatform = false;
-        platforms.forEach(platform => {
-            if (this.position.y + this.height <= platform.position.y &&
-                this.position.y + this.height + this.velocity.y >= platform.position.y &&
-                this.position.x + this.width >= platform.position.x &&
-                this.position.x <= platform.position.x + platform.width) {
-                
-                this.velocity.y = 0;
-                this.position.y = platform.position.y - this.height;
-                onPlatform = true;
-                
-                // 碰到邊界折返
-                if (this.position.x <= platform.position.x || this.position.x + this.width >= platform.position.x + platform.width) {
-                    this.velocity.x *= -1; 
+        
+        // 怪物 X 軸移動與碰撞
+        this.x += this.velocity.x;
+        platforms.forEach(p => {
+            if (rectIntersect(this, p)) {
+                if (this.velocity.x > 0) {
+                    this.x = p.x - this.width;
+                    this.velocity.x *= -1;
+                } else if (this.velocity.x < 0) {
+                    this.x = p.x + p.width;
+                    this.velocity.x *= -1;
                 }
-            } else if (
-                // 撞到障礙物側面折返
-                this.position.x < platform.position.x + platform.width &&
-                this.position.x + this.width > platform.position.x &&
-                this.position.y < platform.position.y + platform.height &&
-                this.position.y + this.height > platform.position.y
-            ) {
-                 this.velocity.x *= -1;
-                 this.position.x += this.velocity.x * 2;
+            }
+        });
+
+        // 怪物沿邊緣折返 (偵測前方是否有地板)
+        // 這個進階邏輯先簡化：只有撞牆會折返
+        // 怪物 Y 軸移動與重力
+        this.velocity.y += 0.6;
+        this.y += this.velocity.y;
+        platforms.forEach(p => {
+            if (rectIntersect(this, p)) {
+                if (this.velocity.y > 0) {
+                    this.y = p.y - this.height;
+                    this.velocity.y = 0;
+                    
+                    // 邊緣偵測折返 (簡易)
+                    if (this.x <= p.x) this.velocity.x = Math.abs(this.velocity.x); // 向右
+                    if (this.x + this.width >= p.x + p.width) this.velocity.x = -Math.abs(this.velocity.x); // 向左
+                }
             }
         });
     }
@@ -191,21 +271,23 @@ class Goomba {
 
 class Spike {
     constructor({ x, y }) {
-        this.position = { x, y };
+        this.x = x;
+        this.y = y;
         this.width = 30;
         this.height = 30;
     }
 
     draw() {
-        ctx.fillStyle = '#E8E8E8'; // 銀白色尖刺
+        let drawX = this.x - scrollOffset;
+
+        ctx.fillStyle = '#E8E8E8'; 
         ctx.strokeStyle = '#000';
         ctx.beginPath();
-        // 畫三個小尖刺
         for(let i=0; i<3; i++) {
-            let startX = this.position.x + (i * 10);
-            ctx.moveTo(startX + 5, this.position.y);
-            ctx.lineTo(startX, this.position.y + this.height);
-            ctx.lineTo(startX + 10, this.position.y + this.height);
+            let startX = drawX + (i * 10);
+            ctx.moveTo(startX + 5, this.y);
+            ctx.lineTo(startX, this.y + this.height);
+            ctx.lineTo(startX + 10, this.y + this.height);
         }
         ctx.fill();
         ctx.stroke();
@@ -214,35 +296,40 @@ class Spike {
 
 class Decoration {
     constructor({ x, y, width, height, color = 'rgba(255, 255, 255, 0.8)' }) {
-        this.position = { x, y };
-        this.width = width;
-        this.height = height;
+        this.x = x; // 這裡的 x 也是絕對座標
+        this.y = y;
+        this.width = width || 0;
+        this.height = height || 0;
         this.color = color;
     }
 
     draw() {
-        // 畫簡單的雲朵
+        // 雲的視差滾動效果：它滾動的速度是背景的一半
+        let drawX = this.x - (scrollOffset * 0.3);
+
         ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.arc(this.position.x, this.position.y, 15, 0, Math.PI * 2);
-        ctx.arc(this.position.x + 20, this.position.y - 10, 20, 0, Math.PI * 2);
-        ctx.arc(this.position.x + 40, this.position.y, 15, 0, Math.PI * 2);
-        ctx.arc(this.position.x + 20, this.position.y + 5, 20, 0, Math.PI * 2);
+        ctx.arc(drawX, this.y, 15, 0, Math.PI * 2);
+        ctx.arc(drawX + 20, this.y - 10, 20, 0, Math.PI * 2);
+        ctx.arc(drawX + 40, this.y, 15, 0, Math.PI * 2);
+        ctx.arc(drawX + 20, this.y + 5, 20, 0, Math.PI * 2);
         ctx.fill();
     }
 }
 
-// 全域變數
+// 全域陣列
 let player;
 let platforms = [];
 let decorations = [];
 let goombas = [];
 let spikes = [];
-let scrollOffset = 0;
+let stars = [];
 
 function init() {
     gameState = 'playing';
+    scrollOffset = 0;
     player = new Player();
+    stars = []; // 重置星星
     
     // 建立地圖
     platforms = [
@@ -252,7 +339,7 @@ function init() {
         new Platform({ x: 1600, y: 380, width: 2000, height: 20, type: 'ground' }),
         
         // 浮空磚塊
-        new Platform({ x: 300, y: 250, width: 40, height: 40, type: 'qblock' }),
+        new Platform({ x: 300, y: 250, width: 40, height: 40, type: 'qblock' }), // 產出無敵星星
         new Platform({ x: 450, y: 250, width: 40, height: 40, type: 'block' }),
         new Platform({ x: 490, y: 250, width: 40, height: 40, type: 'qblock' }),
         new Platform({ x: 530, y: 250, width: 40, height: 40, type: 'block' }),
@@ -261,7 +348,7 @@ function init() {
         // 高處磚塊
         new Platform({ x: 530, y: 130, width: 40, height: 40, type: 'qblock' }),
         
-        // 階梯區
+        // 階梯區 (現在實體化了，從旁邊撞不會穿過去)
         new Platform({ x: 1000, y: 340, width: 40, height: 40, type: 'block' }),
         new Platform({ x: 1040, y: 300, width: 40, height: 80, type: 'block' }),
         new Platform({ x: 1080, y: 260, width: 40, height: 120, type: 'block' }),
@@ -293,16 +380,15 @@ function init() {
         new Decoration({ x: 700, y: 60 }),
         new Decoration({ x: 1000, y: 100 }),
         new Decoration({ x: 1400, y: 80 }),
-        new Decoration({ x: 1800, y: 120 })
+        new Decoration({ x: 1800, y: 120 }),
+        new Decoration({ x: 2200, y: 90 })
     ];
-
-    scrollOffset = 0;
 }
 
 function animate() {
     requestAnimationFrame(animate);
     
-    // 背景：超級瑪利歐藍天色
+    // 背景
     ctx.fillStyle = '#5C94FC';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -317,7 +403,7 @@ function animate() {
         ctx.fillStyle = 'white';
         ctx.font = '20px 微軟正黑體';
         ctx.fillText('按 Enter 鍵重新開始', canvas.width/2, canvas.height/2 + 30);
-        return; // 停止更新邏輯
+        return;
     }
     
     // 勝利畫面
@@ -334,115 +420,134 @@ function animate() {
         return;
     }
 
-    // 畫背景裝飾
-    decorations.forEach(dec => dec.draw());
+    // 更新無敵時間
+    if (player.invincibilityTimer > 0) {
+        player.invincibilityTimer--;
+    }
 
-    // 畫陷阱
-    spikes.forEach(spike => spike.draw());
-
-    // 畫平台
-    platforms.forEach(platform => {
-        platform.draw();
-    });
-
-    // 畫怪物
-    goombas.forEach(goomba => {
-        goomba.update();
-    });
-
-    // 更新並畫出玩家
-    player.update();
-
-    // 處理橫向卷軸與移動邏輯
-    if (keys.right && player.position.x < 400) {
+    // 處理主角橫向移動與碰撞
+    if (keys.right) {
         player.velocity.x = player.speed;
-    } else if ((keys.left && player.position.x > 100) || (keys.left && scrollOffset === 0 && player.position.x > 0)) {
+    } else if (keys.left) {
         player.velocity.x = -player.speed;
     } else {
         player.velocity.x = 0;
-        
-        // 卷軸移動
-        if (keys.right) {
-            let moveSpeed = player.speed;
-            scrollOffset += moveSpeed;
-            platforms.forEach(platform => platform.position.x -= moveSpeed);
-            decorations.forEach(dec => dec.position.x -= moveSpeed * 0.3); // 視差效果
-            goombas.forEach(goomba => goomba.position.x -= moveSpeed);
-            spikes.forEach(spike => spike.position.x -= moveSpeed);
-        } else if (keys.left && scrollOffset > 0) {
-            let moveSpeed = player.speed;
-            scrollOffset -= moveSpeed;
-            platforms.forEach(platform => platform.position.x += moveSpeed);
-            decorations.forEach(dec => dec.position.x += moveSpeed * 0.3);
-            goombas.forEach(goomba => goomba.position.x += moveSpeed);
-            spikes.forEach(spike => spike.position.x += moveSpeed);
-        }
     }
 
-    // 平台碰撞偵測
+    // X 軸移動
+    player.x += player.velocity.x;
+    
+    // 限制主角不要超出世界左側
+    if (player.x < 0) player.x = 0;
+
+    // X 軸平台完全物理碰撞
     platforms.forEach(platform => {
-        // 由上往下踩到平台
-        if (player.position.y + player.height <= platform.position.y &&
-            player.position.y + player.height + player.velocity.y >= platform.position.y &&
-            player.position.x + player.width > platform.position.x && // 修改這裡為 > 而非 >= 避免卡牆
-            player.position.x < platform.position.x + platform.width) {
-            
-            player.velocity.y = 0;
-            player.position.y = platform.position.y - player.height;
-            player.isGrounded = true;
-        }
-        // 側邊撞牆
-        else if (
-            player.position.x + player.width + player.velocity.x >= platform.position.x &&
-            player.position.x + player.velocity.x <= platform.position.x + platform.width &&
-            player.position.y + player.height > platform.position.y &&
-            player.position.y < platform.position.y + platform.height
-        ) {
-            // 阻擋橫向移動
-            player.velocity.x = 0;
+        if (rectIntersect(player, platform)) {
+            if (player.velocity.x > 0) { // 向右移動撞到牆壁左側
+                player.x = platform.x - player.width;
+            } else if (player.velocity.x < 0) { // 向左移動撞到牆壁右側
+                player.x = platform.x + platform.width;
+            }
         }
     });
 
-    // 怪物碰撞偵測
+    // Y 軸移動與重力
+    player.velocity.y += player.gravity;
+    player.y += player.velocity.y;
+    player.isGrounded = false;
+
+    // Y 軸平台完全物理碰撞
+    platforms.forEach(platform => {
+        if (rectIntersect(player, platform)) {
+            if (player.velocity.y > 0) { // 往下掉落在平台上
+                player.y = platform.y - player.height;
+                player.velocity.y = 0;
+                player.isGrounded = true;
+            } else if (player.velocity.y < 0) { // 往上撞到天花板（磚塊底部）
+                player.y = platform.y + platform.height;
+                player.velocity.y = 0; // 撞擊後開始往下掉
+
+                // 如果是問號磚塊且還沒被撞過
+                if (platform.type === 'qblock' && !platform.isHit) {
+                    platform.isHit = true;
+                    // 生成一顆無敵星星在上面
+                    stars.push(new Star({ x: platform.x + (platform.width/2) - 10, y: platform.y - 30 }));
+                }
+            }
+        }
+    });
+
+    // 處理卷軸相機偏移量 (scrollOffset)
+    // 當玩家 X 座標超過 400，鏡頭跟著往右
+    if (player.x > scrollOffset + 400) {
+        scrollOffset = player.x - 400;
+    }
+    // 處理鏡頭往左 (也可鎖死不能往左，看遊戲設計，這裡開放往左捲動)
+    if (player.x < scrollOffset + 100 && scrollOffset > 0) {
+        scrollOffset = player.x - 100;
+        if (scrollOffset < 0) scrollOffset = 0;
+    }
+
+    // ======= 繪製項目 =======
+    decorations.forEach(dec => dec.draw());
+    spikes.forEach(spike => spike.draw());
+    platforms.forEach(platform => platform.draw());
+
+    // 星星邏輯與碰撞
+    stars.forEach(star => {
+        star.update();
+        if (!star.isCollected && rectIntersect(player, star)) {
+            star.isCollected = true;
+            player.invincibilityTimer = 600; // 賦予無敵狀態 600幀 (大約10秒)
+        }
+    });
+
+    // 怪物碰撞偵測與邏輯
     goombas.forEach(goomba => {
+        goomba.update();
+
+        // 如果怪物沒死，也還沒消失，且碰到玩家
         if (!goomba.isDead && goomba.disappearTimer > 0) {
-            // AABB 方盒碰撞偵測
-            if (player.position.x < goomba.position.x + goomba.width &&
-                player.position.x + player.width > goomba.position.x &&
-                player.position.y < goomba.position.y + goomba.height &&
-                player.position.y + player.height > goomba.position.y) {
+            if (rectIntersect(player, goomba)) {
                 
-                // 判斷是否為從高處往下踩
-                if (player.velocity.y > 0 && player.position.y + player.height - player.velocity.y <= goomba.position.y + 10) {
-                    // 踩死怪物
+                // 若玩家是無敵狀態，碰到就直接殺死怪物！
+                if (player.invincibilityTimer > 0) {
                     goomba.isDead = true;
-                    player.velocity.y = -10; // 踩死後彈跳
-                } else {
-                    // 碰到怪物側面或底部，玩家死亡
+                } 
+                // 否則，判斷玩家是否從高處踩下去
+                else if (player.velocity.y > 0 && player.y + player.height - player.velocity.y <= goomba.y + 10) {
+                    goomba.isDead = true;
+                    player.velocity.y = -10; // 踩死後彈起來
+                } 
+                // 其他方向碰到怪物，玩家死亡
+                else {
                     gameState = 'gameover';
                 }
             }
         }
     });
 
-    // 陷阱碰撞偵測
-    spikes.forEach(spike => {
-        // 稍微縮小碰撞判定區域，比較不會因為邊緣判定太嚴格死掉
-        if (player.position.x + 5 < spike.position.x + spike.width - 5 &&
-            player.position.x + player.width - 5 > spike.position.x + 5 &&
-            player.position.y + player.height > spike.position.y + 10) {
-            
-            gameState = 'gameover';
-        }
-    });
+    // 畫出玩家
+    player.draw();
 
-    // 勝利條件 (到達一定距離，因為新增了更多地圖長度，把距離拉長)
-    if (scrollOffset > 3000) {
+    // 陷阱碰撞偵測 (需要扣除無敵狀態)
+    if (player.invincibilityTimer === 0) {
+        spikes.forEach(spike => {
+            // 這個碰撞稍微寬容一點，只判斷腳底板
+            let spikeHitbox = { x: spike.x + 5, y: spike.y + 10, width: spike.width - 10, height: spike.height };
+            if (rectIntersect(player, spikeHitbox)) {
+                gameState = 'gameover';
+            }
+        });
+    }
+
+    // 勝利條件
+    if (player.x > 3200) { // 改用絕對位置判斷通關
         gameState = 'win';
     }
     
-    // 死亡條件 (掉出畫面下方深淵)
-    if (player.position.y > canvas.height) {
+    // 掉出畫面下方深淵
+    if (player.y > canvas.height) {
         gameState = 'gameover';
     }
 }
