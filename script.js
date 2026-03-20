@@ -1,6 +1,10 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// 載入玩家圖片
+const playerImage = new Image();
+playerImage.src = 'player.png';
+
 const keys = {
     right: false,
     left: false,
@@ -12,7 +16,7 @@ class Player {
         this.position = { x: 50, y: 100 };
         this.velocity = { x: 0, y: 0 };
         this.width = 30;
-        this.height = 30;
+        this.height = 40; // 稍微調高，讓人物看起來比例比較自然
         this.speed = 6;
         this.gravity = 0.6;
         this.jumpStrength = 13;
@@ -20,9 +24,14 @@ class Player {
     }
 
     draw() {
-        // 畫出玩家 (紅色方塊代表瑪利歐)
-        ctx.fillStyle = '#ff0000';
-        ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+        // 如果圖片載入完成了，就畫出圖片
+        if (playerImage.complete && playerImage.naturalWidth !== 0) {
+            ctx.drawImage(playerImage, this.position.x, this.position.y, this.width, this.height);
+        } else {
+            // 尚未載入完成時，先畫紅色方塊作為預設
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+        }
     }
 
     update() {
